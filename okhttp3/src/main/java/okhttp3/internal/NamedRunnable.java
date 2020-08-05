@@ -25,6 +25,9 @@ public abstract class NamedRunnable implements Runnable {
         this.name = Util.format(format, args);
     }
 
+    /**
+     * run方法其实调用的AsyncCall的execute()
+     */
     @Override
     public final void run() {
         String oldName = Thread.currentThread().getName();

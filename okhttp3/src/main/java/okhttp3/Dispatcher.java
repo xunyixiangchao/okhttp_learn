@@ -22,6 +22,7 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -75,6 +76,12 @@ public final class Dispatcher {
 
     public synchronized ExecutorService executorService() {
         if (executorService == null) {
+            //corePoolSize:核心线程数  0 不缓存线程，（0和1的表现是一样的）不用时就不占用线程，闲置60就会回收掉
+            //maximumPoolSize最大线程数（包括核心）
+            //keepAliveTime 缓存60秒
+            //workQueue 队列
+            //threadFactory 创建一个thread
+            //PS:和Executors.newCachedThreadPool();创建的线程池一样
             executorService = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 60, TimeUnit.SECONDS,
                     new SynchronousQueue<Runnable>(), Util.threadFactory("OkHttp Dispatcher",
                     false));
@@ -214,6 +221,7 @@ public final class Dispatcher {
      * Used by {@code Call#execute} to signal it is in-flight.
      */
     synchronized void executed(RealCall call) {
+        //同步直接加入running队列,这里的running是同步队列不是异步的
         runningSyncCalls.add(call);
     }
 

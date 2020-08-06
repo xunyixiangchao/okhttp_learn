@@ -20,7 +20,6 @@ import java.io.InterruptedIOException;
 import java.net.HttpRetryException;
 import java.net.ProtocolException;
 import java.net.Proxy;
-import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.security.cert.CertificateException;
 
@@ -161,6 +160,7 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
                     throw e.getLastConnectException();
                 }
                 releaseConnection = false;
+                //重试
                 continue;
             } catch (IOException e) {
                 //todo 请求发出去了，但是和服务器通信失败了。(socket流正在读写数据的时候断开连接)
@@ -265,7 +265,7 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
         //This exception is fatal.
         if (!isRecoverable(e, requestSendStarted)) return false;
 
-        //todo 4、不存在更多的路由
+        //todo 4、不存在更多的路线
         //No more routes to attempt.
         if (!streamAllocation.hasMoreRoutes()) return false;
 
@@ -274,20 +274,19 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
     }
 
     private boolean isRecoverable(IOException e, boolean requestSendStarted) {
-        // If there was a protocol problem, don't recover.
+        // 1.是不是协议异常（code为204,205代表没有响应体，同时响应数据长度还大于0两都冲突，参照CallServerInterceptor中
+        // if ((code == 204 || code == 205) && response.body().contentLength() > 0)）
+        //：不重试
         if (e instanceof ProtocolException) {
             return false;
         }
 
-        // If there was an interruption don't recover, but if there was a timeout connecting to a
-        // route
-        // we should try the next route (if there is one).
+        //2.socket超时异常 返回true:重试
         if (e instanceof InterruptedIOException) {
             return e instanceof SocketTimeoutException && !requestSendStarted;
         }
 
-        // Look for known client-side or negotiation errors that are unlikely to be fixed by trying
-        // again with a different route.
+        //SSL证书不正确  可能证书格式损坏 有问题：不重试
         if (e instanceof SSLHandshakeException) {
             // If the problem was a CertificateException from the X509TrustManager,
             // do not retry.
@@ -295,16 +294,11 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
                 return false;
             }
         }
+        //SSL证书校验：不重试
         if (e instanceof SSLPeerUnverifiedException) {
-            // e.g. a certificate pinning error.
             return false;
         }
 
-        // An example of one we might want to retry with a different route is a problem
-        // connecting to a
-        // proxy and would manifest as a standard IOException. Unless it is one we know we should
-        // not
-        // retry, we return true and try a new route.
         return true;
     }
 
@@ -319,6 +313,7 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
 
         final String method = userResponse.request().method();
         switch (responseCode) {
+            // 407 客户端使用了HTTP代理服务器，在请求头中添加 “Proxy-Authorization”，让代理服务器授权
             case HTTP_PROXY_AUTH:
                 Proxy selectedProxy = route != null
                         ? route.proxy()
@@ -327,49 +322,55 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
                     throw new ProtocolException("Received HTTP_PROXY_AUTH (407) code while not " +
                             "using proxy");
                 }
+                //用户没有设置就返回null,重定向就结束了
                 return client.proxyAuthenticator().authenticate(route, userResponse);
-
+            // 401 需要身份验证 有些服务器接口需要验证使用者身份 在请求头中添加 “Authorization”
             case HTTP_UNAUTHORIZED:
+                //类似407身份验证，设置authenticator()
                 return client.authenticator().authenticate(route, userResponse);
-
+            // 308 永久重定向
+            // 307 临时重定向
             case HTTP_PERM_REDIRECT:
             case HTTP_TEMP_REDIRECT:
-                // "If the 307 or 308 status code is received in response to a request other than
-                // GET
-                // or HEAD, the user agent MUST NOT automatically redirect the request"
+                // 如果请求方式不是GET或者HEAD，框架不会自动重定向请求
                 if (!method.equals("GET") && !method.equals("HEAD")) {
                     return null;
                 }
-                // fall-through
+                // 300 301 302 303
             case HTTP_MULT_CHOICE:
             case HTTP_MOVED_PERM:
             case HTTP_MOVED_TEMP:
             case HTTP_SEE_OTHER:
-                // Does the client allow redirects?
+                // 如果用户不允许重定向，那就返回null
                 if (!client.followRedirects()) return null;
-
+                // 从响应头取出location
                 String location = userResponse.header("Location");
                 if (location == null) return null;
+                // 根据location 配置新的请求 url
                 HttpUrl url = userResponse.request().url().resolve(location);
-
-                // Don't follow redirects to unsupported protocols.
+                // 如果为null，说明协议有问题，取不出来HttpUrl，那就返回null，不进行重定向
                 if (url == null) return null;
-
-                // If configured, don't follow redirects between SSL and non-SSL.
+                // 如果重定向在http到https之间切换，需要检查用户是不是允许(默认允许)
                 boolean sameScheme = url.scheme().equals(userResponse.request().url().scheme());
                 if (!sameScheme && !client.followSslRedirects()) return null;
 
-                // Most redirects don't include a request body.
+
                 Request.Builder requestBuilder = userResponse.request().newBuilder();
+                /**
+                 *  重定向请求中 只要不是 PROPFIND 请求，无论是POST还是其他的方法都要改为GET请求方式，
+                 *  即只有 PROPFIND 请求才能有请求体
+                 */
+                //请求不是get与head
                 if (HttpMethod.permitsRequestBody(method)) {
                     final boolean maintainBody = HttpMethod.redirectsWithBody(method);
+                    // 除了 PROPFIND 请求之外都改成GET请求
                     if (HttpMethod.redirectsToGet(method)) {
                         requestBuilder.method("GET", null);
                     } else {
-                        RequestBody requestBody = maintainBody ? userResponse.request().body() :
-                                null;
+                        RequestBody requestBody = maintainBody ? userResponse.request().body() : null;
                         requestBuilder.method(method, requestBody);
                     }
+                    // 不是 PROPFIND 的请求，把请求头中关于请求体的数据删掉
                     if (!maintainBody) {
                         requestBuilder.removeHeader("Transfer-Encoding");
                         requestBuilder.removeHeader("Content-Length");
@@ -377,56 +378,44 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
                     }
                 }
 
-                // When redirecting across hosts, drop all authentication headers. This
-                // is potentially annoying to the application layer since they have no
-                // way to retain them.
+                // 在跨主机重定向时，删除身份验证请求头
                 if (!sameConnection(userResponse, url)) {
                     requestBuilder.removeHeader("Authorization");
                 }
 
                 return requestBuilder.url(url).build();
-
+            // 408 客户端请求超时
             case HTTP_CLIENT_TIMEOUT:
-                // 408's are rare in practice, but some servers like HAProxy use this response
-                // code. The
-                // spec says that we may repeat the request without modifications. Modern
-                // browsers also
-                // repeat the request (even non-idempotent ones.)
+                // 408 算是连接失败了，所以判断用户是不是允许重试
                 if (!client.retryOnConnectionFailure()) {
-                    // The application layer has directed us not to retry the request.
                     return null;
                 }
-
+                // UnrepeatableRequestBody实际并没发现有其他地方用到
                 if (userResponse.request().body() instanceof UnrepeatableRequestBody) {
                     return null;
                 }
-
+                // 如果是本身这次的响应就是重新请求的产物同时上一次之所以重请求还是因为408，那我们这次不再重请求了
                 if (userResponse.priorResponse() != null
                         && userResponse.priorResponse().code() == HTTP_CLIENT_TIMEOUT) {
-                    // We attempted to retry and got another timeout. Give up.
                     return null;
                 }
-
+                // 如果服务器告诉我们了 Retry-After 多久后重试，那框架不管了。
                 if (retryAfter(userResponse, 0) > 0) {
                     return null;
                 }
-
                 return userResponse.request();
-
+            // 503 服务不可用 和408差不多，但是只在服务器告诉你 Retry-After：0（意思就是立即重试） 才重请求
             case HTTP_UNAVAILABLE:
                 if (userResponse.priorResponse() != null
                         && userResponse.priorResponse().code() == HTTP_UNAVAILABLE) {
-                    // We attempted to retry and got another timeout. Give up.
                     return null;
                 }
 
                 if (retryAfter(userResponse, Integer.MAX_VALUE) == 0) {
-                    // specifically received an instruction to retry without delay
                     return userResponse.request();
                 }
 
                 return null;
-
             default:
                 return null;
         }

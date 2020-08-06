@@ -217,6 +217,8 @@ public final class CacheStrategy {
                 return new CacheStrategy(request, null);
             }
             //todo 2、https请求，但是没有握手信息,进行网络请求
+            // OkHttp会保存ssl握手信息 handshake,如果这次发起了https请求，
+            // 但是缓存的响应信息中没有握手信息，发起网络请求
             //Drop the cached response if it's missing a required handshake.
             if (request.isHttps() && cacheResponse.handshake() == null) {
                 return new CacheStrategy(request, null);

@@ -65,7 +65,9 @@ public final class CacheInterceptor implements Interceptor {
         //todo 缓存策略:根据各种条件(请求头)组成 请求与缓存
         CacheStrategy strategy =
                 new CacheStrategy.Factory(now, chain.request(), cacheCandidate).get();
+        //需要的网络请求（不为null,则需要网络请求
         Request networkRequest = strategy.networkRequest;
+        //缓存的响应
         Response cacheResponse = strategy.cacheResponse;
 
         if (cache != null) {
@@ -77,7 +79,7 @@ public final class CacheInterceptor implements Interceptor {
         }
 
         //todo 没有网络请求也没有缓存
-        //If we're forbidden from using the network and the cache is insufficient, fail.
+        //请求和响应都为null，则报504错误
         if (networkRequest == null && cacheResponse == null) {
             return new Response.Builder()
                     .request(chain.request())

@@ -57,13 +57,16 @@ public final class ConnectionPool {
   private final Runnable cleanupRunnable = new Runnable() {
     @Override public void run() {
       while (true) {
+        //todo:最快多久后需要清理
         long waitNanos = cleanup(System.nanoTime());
         if (waitNanos == -1) return;
         if (waitNanos > 0) {
+          //todo:因为等待是纳秒级，wait方法可以接收纳秒级控制，但是把毫秒与纳秒分开
           long waitMillis = waitNanos / 1000000L;
           waitNanos -= (waitMillis * 1000000L);
           synchronized (ConnectionPool.this) {
             try {
+              //todo:参数多一个纳秒，控制更加精确
               ConnectionPool.this.wait(waitMillis, (int) waitNanos);
             } catch (InterruptedException ignored) {
             }
@@ -116,12 +119,14 @@ public final class ConnectionPool {
   }
 
   /**
+   * todo:获取可复用连接
    * Returns a recycled connection to {@code address}, or null if no such connection exists. The
    * route is null if the address has not yet been routed.
    */
   @Nullable RealConnection get(Address address, StreamAllocation streamAllocation, Route route) {
     assert (Thread.holdsLock(this));
     for (RealConnection connection : connections) {
+      //todo:要拿到的连接与连接池中的连接 连接配置一致（dns/代理/域名等等），就可复用
       if (connection.isEligible(address, route)) {
         streamAllocation.acquire(connection, true);
         return connection;
@@ -150,6 +155,7 @@ public final class ConnectionPool {
     assert (Thread.holdsLock(this));
     if (!cleanupRunning) {
       cleanupRunning = true;
+      //启动清理
       executor.execute(cleanupRunnable);
     }
     connections.add(connection);
@@ -190,6 +196,7 @@ public final class ConnectionPool {
   }
 
   /**
+   * todo:清理
    * Performs maintenance on this pool, evicting the connection that has been idle the longest if
    * either it has exceeded the keep alive limit or the idle connections limit.
    *
@@ -214,7 +221,7 @@ public final class ConnectionPool {
         }
 
         idleConnectionCount++;
-
+        // TODO: 获得这个连接闲置多久
         // If the connection is ready to be evicted, we're done.
         long idleDurationNs = now - connection.idleAtNanos;
         if (idleDurationNs > longestIdleDurationNs) {
@@ -222,7 +229,7 @@ public final class ConnectionPool {
           longestIdleConnection = connection;
         }
       }
-
+      //超过保活时间（5分钟）或者池内数量超过了5个，马上移除，然后返回0，表示不等待，马上再次检查
       if (longestIdleDurationNs >= this.keepAliveDurationNs
           || idleConnectionCount > this.maxIdleConnections) {
         // We've found a connection to evict. Remove it from the list, then close it below (outside
@@ -230,12 +237,15 @@ public final class ConnectionPool {
         connections.remove(longestIdleConnection);
       } else if (idleConnectionCount > 0) {
         // A connection will be ready to evict soon.
+        // TODO: 池内存在闲置连接，就等待，保活时间（5分钟）-最长闲置时间=还能闲置多久 再检查
         return keepAliveDurationNs - longestIdleDurationNs;
       } else if (inUseConnectionCount > 0) {
         // All connections are in use. It'll be at least the keep alive duration 'til we run again.
+        // TODO: 有使用中的连接就等待5分钟，再检查
         return keepAliveDurationNs;
       } else {
         // No connections, idle or in use.
+        // TODO: 都不满足，可能池内没任何连接，直接停止清理（put后再次启用）
         cleanupRunning = false;
         return -1;
       }

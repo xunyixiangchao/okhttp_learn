@@ -51,20 +51,24 @@ public final class CallServerInterceptor implements Interceptor {
         long sentRequestMillis = System.currentTimeMillis();
 
         realChain.eventListener().requestHeadersStart(realChain.call());
+        //todo:拼接请求的数据
         httpCodec.writeRequestHeaders(request);
         realChain.eventListener().requestHeadersEnd(realChain.call(), request);
 
         Response.Builder responseBuilder = null;
+        //todo:如果没有请求体或者不是post跳过
         if (HttpMethod.permitsRequestBody(request.method()) && request.body() != null) {
             // If there's a "Expect: 100-continue" header on the request, wait for a "HTTP/1.1 100
             // Continue" response before transmitting the request body. If we don't get that, return
             // what we did get (such as a 4xx response) without ever transmitting the request body.
+            // todo: 如果是post请求，并包含了100-continue,不发请求体，读服务器的响应
             if ("100-continue".equalsIgnoreCase(request.header("Expect"))) {
+                // todo: 发送请求头
                 httpCodec.flushRequest();
                 realChain.eventListener().responseHeadersStart(realChain.call());
                 responseBuilder = httpCodec.readResponseHeaders(true);
             }
-
+            //服务返回100，responseBuilder会置为null
             if (responseBuilder == null) {
                 // Write the request body if the "Expect: 100-continue" expectation was met.
                 realChain.eventListener().requestBodyStart(realChain.call());
@@ -72,7 +76,7 @@ public final class CallServerInterceptor implements Interceptor {
                 CountingSink requestBodyOut =
                         new CountingSink(httpCodec.createRequestBody(request, contentLength));
                 BufferedSink bufferedRequestBody = Okio.buffer(requestBodyOut);
-
+                //todo：写入请求体
                 request.body().writeTo(bufferedRequestBody);
                 bufferedRequestBody.close();
                 realChain.eventListener()
@@ -88,7 +92,7 @@ public final class CallServerInterceptor implements Interceptor {
         }
 
         httpCodec.finishRequest();
-
+        // TODO: 读取服务器响应
         if (responseBuilder == null) {
             realChain.eventListener().responseHeadersStart(realChain.call());
             responseBuilder = httpCodec.readResponseHeaders(false);
@@ -102,6 +106,7 @@ public final class CallServerInterceptor implements Interceptor {
                 .build();
 
         int code = response.code();
+        // todo: 服务器允许继续发送响应体
         if (code == 100) {
             // server sent a 100-continue even though we did not request one.
             // try again to read the actual response

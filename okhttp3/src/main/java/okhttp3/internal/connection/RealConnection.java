@@ -170,6 +170,7 @@ public final class RealConnection extends Http2Connection.Listener implements Co
                         break;
                     }
                 } else {
+                    //todo 创建socket连接
                     connectSocket(connectTimeout, readTimeout, call, eventListener);
                 }
                 establishProtocol(connectionSpecSelector, pingIntervalMillis, call, eventListener);
@@ -224,6 +225,7 @@ public final class RealConnection extends Http2Connection.Listener implements Co
         HttpUrl url = tunnelRequest.url();
         for (int i = 0; i < MAX_TUNNEL_ATTEMPTS; i++) {
             connectSocket(connectTimeout, readTimeout, call, eventListener);
+            //todo:使用http代理，连接https
             tunnelRequest = createTunnel(readTimeout, writeTimeout, tunnelRequest, url);
 
             if (tunnelRequest == null) break; // Tunnel successfully created.
@@ -240,13 +242,14 @@ public final class RealConnection extends Http2Connection.Listener implements Co
     }
 
     /**
+     * todo:创建socket连接
      * Does all the work necessary to build a full HTTP or HTTPS connection on a raw socket.
      */
     private void connectSocket(int connectTimeout, int readTimeout, Call call,
                                EventListener eventListener) throws IOException {
         Proxy proxy = route.proxy();
         Address address = route.address();
-
+        //todo:没有代理直接new一个Socket（），有代理就创建一个带代理参数的socket
         rawSocket = proxy.type() == Proxy.Type.DIRECT || proxy.type() == Proxy.Type.HTTP
                 ? address.socketFactory().createSocket()
                 : new Socket(proxy);
@@ -254,6 +257,7 @@ public final class RealConnection extends Http2Connection.Listener implements Co
         eventListener.connectStart(call, route.socketAddress(), proxy);
         rawSocket.setSoTimeout(readTimeout);
         try {
+            // TODO: socket.connect
             Platform.get().connectSocket(rawSocket, route.socketAddress(), connectTimeout);
         } catch (ConnectException e) {
             ConnectException ce =
@@ -380,6 +384,7 @@ public final class RealConnection extends Http2Connection.Listener implements Co
     private Request createTunnel(int readTimeout, int writeTimeout, Request tunnelRequest,
                                  HttpUrl url) throws IOException {
         // Make an SSL Tunnel on the first message pair of each SSL + proxy connection.
+        //todo:告诉服务器要连接哪个主机
         String requestLine = "CONNECT " + Util.hostHeader(url, true) + " HTTP/1.1";
         while (true) {
             Http1Codec tunnelConnection = new Http1Codec(null, null, source, sink);
@@ -456,12 +461,15 @@ public final class RealConnection extends Http2Connection.Listener implements Co
      */
     public boolean isEligible(Address address, @Nullable Route route) {
         // If this connection is not accepting new streams, we're done.
+        // TODO: 实际上就是在使用http1.1就不能用
         if (allocations.size() >= allocationLimit || noNewStreams) return false;
 
         // If the non-host fields of the address don't overlap, we're done.
+        // TODO: 如果地址不同就不能复用（Address.equalsNonHost）DNS、代理、SSL证书、服务器域名、端口（域名没有判断，所以下面马上判断）
         if (!Internal.instance.equalsNonHost(this.route.address(), address)) return false;
 
         // If the host exactly matches, we're done: this connection can carry the address.
+        //todo: 都相同那就可以复用了
         if (address.url().host().equals(this.route().address().url().host())) {
             return true; // This connection is a perfect match.
         }

@@ -198,6 +198,7 @@ public final class StreamAllocation {
 
             if (result == null) {
                 //todo 尝试从连接池获取连接，如果有可复用的连接,会给第三个参数 this的connection赋值
+                // connectionPool.get()
                 //Attempt to get a connection from the pool.
                 Internal.instance.get(connectionPool, address, this, null);
                 if (connection != null) {
@@ -276,6 +277,7 @@ public final class StreamAllocation {
         //todo 实际上就是创建socket连接，但是要注意的是如果存在http代理的情况
         result.connect(connectTimeout, readTimeout, writeTimeout, pingIntervalMillis,
                 connectionRetryEnabled, call, eventListener);
+        // TODO: 连接完后移除路由
         routeDatabase().connected(result.route());
 
         Socket socket = null;

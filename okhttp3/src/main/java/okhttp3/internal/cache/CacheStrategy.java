@@ -233,7 +233,7 @@ public final class CacheStrategy {
             }
 
             CacheControl requestCaching = request.cacheControl();
-            //todo 4、如果 请求包含：CacheControl:no-cache 需要与服务器验证缓存有效性
+            //todo 4、如果请求包含：CacheControl:no-cache 需要与服务器验证缓存有效性
             // 或者请求头包含 If-Modified-Since：时间 值为lastModified或者data 如果服务器没有在该头部指定的时间之后修改了请求的数据，服务器返回304(无修改)
             // 或者请求头包含 If-None-Match：值就是Etag（资源标记）服务器将其与存在服务端的Etag值进行比较；如果匹配，返回304
             // 请求头中只要存在三者中任意一个，进行网络请求
@@ -308,6 +308,7 @@ public final class CacheStrategy {
                 conditionName = "If-Modified-Since";
                 conditionValue = servedDateString;
             } else {
+                //意味着无法与服务器发起比较，只能重新请求
                 return new CacheStrategy(request, null); // No condition! Make a regular request.
             }
             //todo 如果设置了 If-None-Match/If-Modified-Since 服务器是可能返回304(无修改)的,使用缓存的响应体

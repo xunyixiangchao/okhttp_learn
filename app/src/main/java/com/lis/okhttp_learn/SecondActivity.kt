@@ -14,6 +14,7 @@ class SecondActivity :Activity(){
         toast("哈哈");
         val text = findViewById<TextView>(R.id.text)
         text.gTitle()
+        text.post { }
 
     }
 }

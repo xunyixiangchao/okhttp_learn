@@ -50,8 +50,6 @@ import okhttp3.internal.platform.Platform;
 import okhttp3.internal.tls.CertificateChainCleaner;
 import okhttp3.internal.tls.OkHostnameVerifier;
 import okhttp3.internal.ws.RealWebSocket;
-import okio.Sink;
-import okio.Source;
 
 import static okhttp3.internal.Util.assertionError;
 import static okhttp3.internal.Util.checkDuration;
@@ -513,6 +511,7 @@ public class OkHttpClient implements Cloneable, Call.Factory, WebSocket.Factory 
 
         public Builder() {
             dispatcher = new Dispatcher();
+            //默认协议http/1.1和Http2
             protocols = DEFAULT_PROTOCOLS;
             connectionSpecs = DEFAULT_CONNECTION_SPECS;
             eventListenerFactory = EventListener.factory(EventListener.NONE);

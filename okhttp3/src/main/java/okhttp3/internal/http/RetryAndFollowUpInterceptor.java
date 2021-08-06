@@ -153,9 +153,11 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
                 //todo 请求出现了异常，那么releaseConnection依旧为true。
                 response = realChain.proceed(request, streamAllocation, null, null);
                 releaseConnection = false;
+
             } catch (RouteException e) {
                 //todo 路由异常，连接未成功，请求还没发出去
                 //The attempt to connect via a route failed. The request will not have been sent.
+                // todo: 重试
                 if (!recover(e.getLastConnectException(), streamAllocation, false, request)) {
                     throw e.getLastConnectException();
                 }
@@ -167,6 +169,7 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
                 // ConnectionShutdownException只对HTTP2存在。假定它就是false
                 //An attempt to communicate with a server failed. The request may have been sent.
                 boolean requestSendStarted = !(e instanceof ConnectionShutdownException);
+                // todo: 重试
                 if (!recover(e, streamAllocation, requestSendStarted, request)) throw e;
                 releaseConnection = false;
                 continue;
@@ -189,6 +192,7 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
                         )
                         .build();
             }
+            // todo: 重定向
             //todo 处理3和4xx的一些状态码，如301 302重定向
             Request followUp = followUpRequest(response, streamAllocation.route());
             if (followUp == null) {

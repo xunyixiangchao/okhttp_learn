@@ -22,7 +22,6 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -154,10 +153,13 @@ public final class Dispatcher {
         //1.running队列数小于最大请求数64（正在请求的的数量是有限制的，自己配置分发器时可以修改）
         //2.同一域名正在请求的个数也是有限制的小于5
         //PS:最大同时请求数64，与同一台服务器请求数5
-        if (runningAsyncCalls.size() < maxRequests && runningCallsForHost(call) < maxRequestsPerHost) {
+        if (runningAsyncCalls.size() < maxRequests &&
+            runningCallsForHost(call) < maxRequestsPerHost) {
             //添加到running队列
             runningAsyncCalls.add(call);
             //将runnable（call）提交到线程池当中
+            //这里会调用到NamedRunnable#run()->AsyncCall#excute()
+            //这里线程池了解一下
             executorService().execute(call);
         } else {
             //不符合上面请求就加入到等待队列
@@ -183,15 +185,16 @@ public final class Dispatcher {
         }
     }
 
+    //移动队列  runningAsyncCalls和readyAsyncCalls 里Call移动
     private void promoteCalls() {
-        //正在执行队列数
+        //正在执行队列数 大于等于最大数则不移动
         if (runningAsyncCalls.size() >= maxRequests) return; // Already running max capacity.
         //等待队列数得不为空
         if (readyAsyncCalls.isEmpty()) return; // No ready calls to promote.
 
         for (Iterator<AsyncCall> i = readyAsyncCalls.iterator(); i.hasNext(); ) {
             AsyncCall call = i.next();
-            //如果拿到的等待请求host，在请求的列表中已经存在5个
+            //正在运行队列里，相同域名数小于最大相同域名数再进行移动
             if (runningCallsForHost(call) < maxRequestsPerHost) {
                 //等待移除
                 i.remove();
@@ -208,6 +211,7 @@ public final class Dispatcher {
     /**
      * Returns the number of running calls that share a host with {@code call}.
      */
+    //运行的异步队列中和call相同域名数
     private int runningCallsForHost(AsyncCall call) {
         int result = 0;
         for (AsyncCall c : runningAsyncCalls) {
@@ -228,6 +232,7 @@ public final class Dispatcher {
     /**
      * Used by {@code AsyncCall#run} to signal completion.
      */
+    //异步Call结束
     void finished(AsyncCall call) {
         finished(runningAsyncCalls, call, true);
     }
@@ -235,6 +240,7 @@ public final class Dispatcher {
     /**
      * Used by {@code Call#execute} to signal completion.
      */
+    //同步Call结束
     void finished(RealCall call) {
         finished(runningSyncCalls, call, false);
     }
@@ -245,12 +251,13 @@ public final class Dispatcher {
         synchronized (this) {
             //将call从running队列中移除
             if (!calls.remove(call)) throw new AssertionError("Call wasn't in-flight!");
-            //移动队列
+            //移动队列--只有异步时才会调用
             if (promoteCalls) promoteCalls();
+            //获取正在执行的call数量
             runningCallsCount = runningCallsCount();
             idleCallback = this.idleCallback;
         }
-
+        //正在执行为0且闲时Runnable不为空则执行
         if (runningCallsCount == 0 && idleCallback != null) {
             idleCallback.run();
         }
@@ -259,6 +266,7 @@ public final class Dispatcher {
     /**
      * Returns a snapshot of the calls currently awaiting execution.
      */
+    //readyAsyncCalls队列里的Call
     public synchronized List<Call> queuedCalls() {
         List<Call> result = new ArrayList<>();
         for (AsyncCall asyncCall : readyAsyncCalls) {

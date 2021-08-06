@@ -70,8 +70,10 @@ final class RealCall implements Call {
         return originalRequest;
     }
 
+    //同步执行方法
     @Override
     public Response execute() throws IOException {
+        //判断有没有被执行
         synchronized (this) {
             if (executed) throw new IllegalStateException("Already Executed");
             executed = true;
@@ -79,7 +81,9 @@ final class RealCall implements Call {
         captureCallStackTrace();
         eventListener.callStart(this);
         try {
+            //获取分发器（默认的）去分发--这里会放到runningSyncCalls同步队列里
             client.dispatcher().executed(this);
+            //通过拦截器去获取返回结果
             Response result = getResponseWithInterceptorChain();
             if (result == null) throw new IOException("Canceled");
             return result;
@@ -87,6 +91,7 @@ final class RealCall implements Call {
             eventListener.callFailed(this, e);
             throw e;
         } finally {
+            //最后调用分发器结束当前的 call--从同步队列移除当前call
             client.dispatcher().finished(this);
         }
     }
@@ -96,14 +101,17 @@ final class RealCall implements Call {
         retryAndFollowUpInterceptor.setCallStackTrace(callStackTrace);
     }
 
+    //异步请求入队
     @Override
     public void enqueue(Callback responseCallback) {
+        //判断有没有被执行----和同步一样
         synchronized (this) {
             if (executed) throw new IllegalStateException("Already Executed");
             executed = true;
         }
         captureCallStackTrace();
         eventListener.callStart(this);
+        //将Callbak封装成Runnable ，AsyncCall内部类包含了外部类的引用
         client.dispatcher().enqueue(new AsyncCall(responseCallback));
     }
 
@@ -154,12 +162,13 @@ final class RealCall implements Call {
         }
 
         /**
-         * 线程跑的方法，NamedRunnable的 run 方法
+         * 线程跑的方法，NamedRunnable的 run 方法调用execute()
          */
         @Override
         protected void execute() {
             boolean signalledCallback = false;
             try {
+                //通过拦截器去获取返回结果
                 Response response = getResponseWithInterceptorChain();
                 if (retryAndFollowUpInterceptor.isCanceled()) {
                     signalledCallback = true;
@@ -177,7 +186,7 @@ final class RealCall implements Call {
                     responseCallback.onFailure(RealCall.this, e);
                 }
             } finally {
-                //一个任务执行完了
+                //一个任务执行完了,调用finished移除，并且移动队列
                 client.dispatcher().finished(this);
             }
         }
@@ -196,12 +205,13 @@ final class RealCall implements Call {
     String redactedUrl() {
         return originalRequest.url().redact();
     }
-
+    //通过拦截器去获取返回结果
     Response getResponseWithInterceptorChain() throws IOException {
         // 拦截器集合
         List<Interceptor> interceptors = new ArrayList<>();
+        //在最前面的自定义拦截器--重试和重定向时不会走
         interceptors.addAll(client.interceptors());
-        //重定向与重试
+        //重定向与重试--重试和重定向的话，会重新走后面的拦截器
         interceptors.add(retryAndFollowUpInterceptor);
         //Header,Body处理
         interceptors.add(new BridgeInterceptor(client.cookieJar()));
@@ -210,6 +220,8 @@ final class RealCall implements Call {
         //连接处理
         interceptors.add(new ConnectInterceptor(client));
         if (!forWebSocket) {
+            //在服务器通讯前的自定义拦截器-倒第二个--重试或重定向的话会调用到
+            //所以添加Logger拦截器时，如果要记录重试和重写向的话，在这里面添加
             interceptors.addAll(client.networkInterceptors());
         }
         //服务器通讯
